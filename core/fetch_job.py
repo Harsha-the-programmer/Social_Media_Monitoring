@@ -209,7 +209,7 @@ def run_fetch_job():
 
                     html = build_email_table(
                         posts,
-                        f"Tamil Nadu Election Social Listening ({platform})"
+                        f"Social Listening ({platform})"
                     )
 
                     send_email(
@@ -232,7 +232,7 @@ def run_fetch_job():
 
                     html = build_combined_email_table(
                         posts,
-                        "Tamil Nadu Election Social Listening"
+                        "Social Listening (All Platforms)"
                     )
 
                     send_email(
