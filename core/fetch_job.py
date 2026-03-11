@@ -12,9 +12,15 @@ from collectors.youtube_collector import fetch_youtube_posts
 from notifications.email_sender import send_email
 from notifications.report_builder import build_email_table
 from database.repository import get_recent_posts
+from notifications.report_builder import build_combined_email_table
+from database.repository import get_recent_posts_all_platforms
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)
+
+
+EMAIL_MODE = "combined"
+# options: "separate" or "combined"
 
 
 def find_matching_keywords(text, keywords):
@@ -52,57 +58,55 @@ def run_fetch_job():
 
     for config in configs:
 
-        #tweets, users = fetch_tweets(config)
+        tweets, users = fetch_tweets(config)
 
         keywords = config["keywords"] if isinstance(config["keywords"], list) else json.loads(config["keywords"])
 
-        # for tweet in tweets:
+        for tweet in tweets:
 
-        #     author = users.get(tweet.author_id)
+            author = users.get(tweet.author_id)
 
-        #     if not author:
-        #         continue
+            if not author:
+                continue
 
-        #     matched = find_matching_keywords(tweet.text, keywords)
+            matched = find_matching_keywords(tweet.text, keywords)
 
-        #     try:
+            try:
 
-        #         post_id = save_post(cur, tweet, author, config["id"], matched)
+                post_id = save_post(cur, tweet, author, config["id"], matched)
 
-        #         if post_id:
+                if post_id:
 
-        #             sentiment, score = analyze_sentiment(tweet.text)
+                    sentiment, score = analyze_sentiment(tweet.text)
 
-        #             cur.execute("""
-        #                 INSERT IGNORE INTO post_sentiment
-        #                 (post_id,sentiment,sentiment_score)
-        #                 VALUES (%s,%s,%s)
-        #             """,(post_id,sentiment,score))
+                    cur.execute("""
+                        INSERT IGNORE INTO post_sentiment
+                        (post_id,sentiment,sentiment_score)
+                        VALUES (%s,%s,%s)
+                    """,(post_id,sentiment,score))
 
-        #             demo = estimate_demographics(
-        #                 author.username,
-        #                 author.name,
-        #                 author.description
-        #             )
+                    demo = estimate_demographics(
+                        author.username,
+                        author.name,
+                        author.description
+                    )
 
-        #             cur.execute("""
-        #                 INSERT IGNORE INTO author_demographics
-        #                 (post_id,estimated_age_group,estimated_gender)
-        #                 VALUES (%s,%s,%s)
-        #             """,(post_id,demo["estimated_age_group"],demo["estimated_gender"]))
+                    cur.execute("""
+                        INSERT IGNORE INTO author_demographics
+                        (post_id,estimated_age_group,estimated_gender)
+                        VALUES (%s,%s,%s)
+                    """,(post_id,demo["estimated_age_group"],demo["estimated_gender"]))
 
-        #             db.commit()
-        #             total += 1
+                    db.commit()
+                    total += 1
 
-        #     except Exception as e:
+            except Exception as e:
 
-        #         db.rollback()
-        #         log.warning(e)
+                db.rollback()
+                log.warning(e)
 
 
-        # ================================
         # YOUTUBE COLLECTION
-        # ================================
 
         youtube_videos = fetch_youtube_posts(config)
 
@@ -190,27 +194,52 @@ def run_fetch_job():
 
             frequency = config.get("frequency", 60)
 
-            platforms = ["X", "YOUTUBE"]
+            if EMAIL_MODE == "separate":
 
-            for platform in platforms:
+                platforms = ["X", "YOUTUBE"]
 
-                posts = get_recent_posts(cur, config["id"], platform, frequency)
+                for platform in platforms:
 
-                log.info(f"{platform}: Found {len(posts)} posts for email report")
+                    posts = get_recent_posts(cur, config["id"], platform, frequency)
 
-                if not posts:
-                    continue
+                    log.info(f"{platform}: Found {len(posts)} posts for email report")
 
-                html = build_email_table(
-                    posts,
-                    f"Tamil Nadu Election Social Listening ({platform})"
+                    if not posts:
+                        continue
+
+                    html = build_email_table(
+                        posts,
+                        f"Tamil Nadu Election Social Listening ({platform})"
+                    )
+
+                    send_email(
+                        emails,
+                        f"{platform} Monitoring Report",
+                        html
+                    )
+
+            elif EMAIL_MODE == "combined":
+
+                posts = get_recent_posts_all_platforms(
+                    cur,
+                    config["id"],
+                    frequency
                 )
 
-                send_email(
-                    emails,
-                    f"{platform} Monitoring Report",
-                    html
-                )
+                log.info(f"Combined report: Found {len(posts)} posts")
+
+                if posts:
+
+                    html = build_combined_email_table(
+                        posts,
+                        "Tamil Nadu Election Social Listening"
+                    )
+
+                    send_email(
+                        emails,
+                        "Social Media Monitoring Report",
+                        html
+                    )
 
     cur.close()
     db.close()

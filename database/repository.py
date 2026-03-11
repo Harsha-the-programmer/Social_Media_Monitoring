@@ -45,3 +45,19 @@ def get_recent_posts(cursor, config_id, platform, minutes):
     """,(config_id, platform, minutes))
 
     return cursor.fetchall()
+
+def get_recent_posts_all_platforms(cursor, config_id, minutes):
+
+    cursor.execute("""
+        SELECT
+            platform,
+            posted_at,
+            post_text,
+            post_url
+        FROM posts
+        WHERE keyword_config_id = %s
+        AND fetched_at >= NOW() - INTERVAL %s MINUTE
+        ORDER BY fetched_at DESC
+    """,(config_id, minutes))
+
+    return cursor.fetchall()
