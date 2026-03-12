@@ -1,5 +1,6 @@
 from googleapiclient.discovery import build
-from core.config import YOUTUBE_API_KEY
+from datetime import datetime, timedelta
+from core.config import YOUTUBE_API_KEY, FETCH_INTERVAL_MINUTES
 import json
 
 youtube = build("youtube", "v3", developerKey=YOUTUBE_API_KEY)
@@ -12,13 +13,17 @@ def fetch_youtube_posts(config):
     # Combine keywords into one query
     query = " OR ".join(keywords[:10])
 
+    # Calculate last FETCH_INTERVAL_MINUTES window
+    published_after = (datetime.utcnow() - timedelta(minutes=FETCH_INTERVAL_MINUTES)).isoformat("T") + "Z"
+
     request = youtube.search().list(
         q=query,
         part="snippet",
         type="video",
         maxResults=50,
         regionCode="IN",
-        order="date"
+        order="date",
+        publishedAfter=published_after   # IMPORTANT FILTER
     )
 
     response = request.execute()

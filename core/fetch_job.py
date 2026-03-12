@@ -6,18 +6,17 @@ from database.repository import save_post
 from collectors.x_collector import fetch_tweets
 from parsers.sentiment import analyze_sentiment
 from parsers.demographics import estimate_demographics
-
 from collectors.youtube_collector import fetch_youtube_posts
 
 from notifications.email_sender import send_email
 from notifications.report_builder import build_email_table
-from database.repository import get_recent_posts
 from notifications.report_builder import build_combined_email_table
+
+from database.repository import get_recent_posts
 from database.repository import get_recent_posts_all_platforms
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)
-
 
 EMAIL_MODE = "combined"
 # options: "separate" or "combined"
@@ -26,7 +25,6 @@ EMAIL_MODE = "combined"
 def find_matching_keywords(text, keywords):
 
     text = text.lower()
-
     matched = []
 
     for k in keywords:
@@ -36,7 +34,6 @@ def find_matching_keywords(text, keywords):
         if k_clean in text:
             matched.append(k)
 
-        # also match without spaces
         elif k_clean.replace(" ", "") in text.replace(" ", ""):
             matched.append(k)
 
@@ -51,14 +48,17 @@ def run_fetch_job():
     cur = db.cursor(dictionary=True)
 
     cur.execute("SELECT * FROM keyword_configs WHERE is_active=1")
-
     configs = cur.fetchall()
 
     total = 0
 
+    # store posts grouped by email list
+    email_groups = {}
+
     for config in configs:
 
         tweets, users = fetch_tweets(config)
+        log.info(f"X returned {len(tweets)} tweets")
 
         keywords = config["keywords"] if isinstance(config["keywords"], list) else json.loads(config["keywords"])
 
@@ -101,28 +101,24 @@ def run_fetch_job():
                     total += 1
 
             except Exception as e:
-
                 db.rollback()
                 log.warning(e)
 
-
+        # -----------------------------
         # YOUTUBE COLLECTION
+        # -----------------------------
 
         youtube_videos = fetch_youtube_posts(config)
-
         log.info(f"YouTube returned {len(youtube_videos)} videos")
 
         for video in youtube_videos:
 
             text = video.get("text", "").strip()
-            
+
             if not text:
                 continue
 
             matched = find_matching_keywords(text, keywords)
-
-            # if not matched:
-            #     continue
 
             try:
 
@@ -178,9 +174,12 @@ def run_fetch_job():
                     total += 1
 
             except Exception as e:
-
                 db.rollback()
                 log.warning(e)
+
+        # -----------------------------
+        # EMAIL COLLECTION LOGIC
+        # -----------------------------
 
         emails = config.get("emails")
 
@@ -194,6 +193,8 @@ def run_fetch_job():
 
             frequency = config.get("frequency", 60)
 
+            email_key = tuple(sorted(set(emails)))
+
             if EMAIL_MODE == "separate":
 
                 platforms = ["X", "YOUTUBE"]
@@ -202,21 +203,10 @@ def run_fetch_job():
 
                     posts = get_recent_posts(cur, config["id"], platform, frequency)
 
-                    log.info(f"{platform}: Found {len(posts)} posts for email report")
+                    if email_key not in email_groups:
+                        email_groups[email_key] = []
 
-                    if not posts:
-                        continue
-
-                    html = build_email_table(
-                        posts,
-                        f"Social Listening ({platform})"
-                    )
-
-                    send_email(
-                        emails,
-                        f"{platform} Monitoring Report",
-                        html
-                    )
+                    email_groups[email_key].extend(posts)
 
             elif EMAIL_MODE == "combined":
 
@@ -226,23 +216,45 @@ def run_fetch_job():
                     frequency
                 )
 
-                log.info(f"Combined report: Found {len(posts)} posts")
+                if email_key not in email_groups:
+                    email_groups[email_key] = []
 
-                if posts:
+                email_groups[email_key].extend(posts)
 
-                    html = build_combined_email_table(
-                        posts,
-                        "Social Listening (All Platforms)"
-                    )
+    # -----------------------------
+    # SEND EMAILS AFTER LOOP
+    # -----------------------------
 
-                    send_email(
-                        emails,
-                        "Social Media Monitoring Report",
-                        html
-                    )
+    for email_key, posts in email_groups.items():
+
+        if not posts:
+            continue
+
+        emails = list(email_key)
+
+        log.info(f"Sending report to {emails} with {len(posts)} posts")
+
+        if EMAIL_MODE == "separate":
+
+            html = build_email_table(
+                posts,
+                "Social Listening Report"
+            )
+
+        else:
+
+            html = build_combined_email_table(
+                posts,
+                "Social Listening (All Platforms)"
+            )
+
+        send_email(
+            emails,
+            "Social Media Monitoring Report",
+            html
+        )
 
     cur.close()
     db.close()
 
     log.info(f"Fetched {total} posts")
-

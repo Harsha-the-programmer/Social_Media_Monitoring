@@ -1,12 +1,31 @@
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
+
+def convert_to_ist(ts):
+
+    if not ts:
+        return ""
+
+    if isinstance(ts, str):
+        ts = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+
+    ts = ts.replace(tzinfo=ZoneInfo("UTC")).astimezone(ZoneInfo("Asia/Kolkata"))
+
+    return ts.strftime("%d %b %Y %I:%M %p IST")
+
+
 def build_email_table(posts, title):
 
     rows = ""
 
     for p in posts:
 
+        time_ist = convert_to_ist(p['posted_at'])
+
         rows += f"""
         <tr>
-            <td>{p['posted_at']}</td>
+            <td>{time_ist}</td>
             <td>{p['post_text']}</td>
             <td><a href="{p['post_url']}">View Post</a></td>
         </tr>
@@ -56,9 +75,11 @@ def build_combined_email_table(posts, title):
 
     for post in posts:
 
+        time_ist = convert_to_ist(post['posted_at'])
+
         html += f"""
         <tr>
-            <td>{post['posted_at']}</td>
+            <td>{time_ist}</td>
             <td>{post['post_text'][:200]}</td>
             <td>
                 <a href="{post['post_url']}">View</a>

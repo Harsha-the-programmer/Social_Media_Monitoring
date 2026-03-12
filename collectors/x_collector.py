@@ -1,7 +1,9 @@
 import json
 import tweepy
+from datetime import datetime, timedelta, timezone
 from core.config import *
 from core.query_builder import build_query
+
 
 def get_x_client():
 
@@ -24,9 +26,13 @@ def fetch_tweets(config):
 
     query = build_query(config)
 
+    # calculate start time (last FETCH_INTERVAL_MINUTES minutes)
+    start_time = datetime.now(timezone.utc) - timedelta(minutes=FETCH_INTERVAL_MINUTES)
+
     response = client.search_recent_tweets(
         query=query,
         max_results=MAX_RESULTS_PER_QUERY,
+        start_time=start_time,
         tweet_fields=["created_at","public_metrics","lang","author_id"],
         user_fields=["username","name","public_metrics","description"],
         expansions=["author_id"]
